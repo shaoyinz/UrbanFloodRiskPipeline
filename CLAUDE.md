@@ -79,6 +79,70 @@ A BigQuery table with one row per building containing:
 - **Airflow** orchestrates idempotent, parameterized-by-release runs. We
   pin the Overture release version per run, not "latest."
 
+### Storage layer (decisions)
+
+GCS layout is four buckets, all managed by Terraform except the
+state bucket (chicken-and-egg). Naming: `${project_id}-floodpipe-{zone}`.
+
+| Bucket    | Location          | Versioning | Lifecycle                  |
+|-----------|-------------------|------------|----------------------------|
+| `tfstate` | `us-central1`     | on         | none                       |
+| `raw`     | `US` multi-region | off        | Nearline @30d, Coldline @90d |
+| `silver`  | `US` multi-region | off        | Nearline @60d              |
+| `gold`    | `US` multi-region | on         | none                       |
+
+Defaults applied to every bucket: uniform bucket-level access (no ACLs),
+public-access-prevention enforced, labels `project=floodpipe`,
+`managed_by=terraform`, `zone=...` for cost attribution.
+
+Rationale:
+
+- **`US` multi-region for data**: BigQuery US multi-region reads from US
+  multi-region GCS with zero egress. Single-region data + multi-region
+  BigQuery would force a copy or pay per-query egress.
+- **Versioning off on raw/silver**: many TB; both zones are reproducible
+  (raw from pinned upstream releases, silver from raw via Spark rerun).
+  Versioning would multiply storage cost without protecting anything not
+  already recoverable.
+- **Versioning on for gold/tfstate**: small, hot, expensive to recompute.
+- **Lifecycle policies**: analytical reads cluster in the first 30–60d
+  after ingest; cold tiers reduce long-tail cost ~5×.
+- **State bucket bootstrapped, not Terraformed**: `terraform init`
+  needs the bucket before it runs; also keeps `terraform destroy` from
+  ever deleting the file describing what still exists.
+- **Out of scope at this layer**: service accounts (added when Composer/
+  Dataproc land), billing budget alerts (Cloud Console one-time per
+  CLAUDE.md cost discipline note), Python GCS helpers (added when
+  ingest jobs need them).
+
+### BigQuery datasets
+
+Two datasets are provisioned alongside the buckets, both in the `US`
+multi-region:
+
+| Dataset                | Purpose                                              |
+|------------------------|------------------------------------------------------|
+| `floodpipe_silver_ext` | External tables over silver-zone GeoParquet         |
+| `floodpipe_gold`       | dbt fact tables (`fct_building_vulnerability`, H3)  |
+
+Decisions:
+
+- **Same `US` multi-region as the data buckets** so cross-reads are
+  egress-free.
+- **Two datasets, not one.** Silver-ext is read-only (truth lives in
+  GCS); gold holds materialized dbt outputs. Splitting them keeps IAM
+  grants tight (e.g. dbt service account writes to `gold` only).
+- **`delete_contents_on_destroy = false`** on both — `terraform destroy`
+  refuses to drop populated datasets. Manual drop required if you mean it.
+- **BigQuery API enabled via Terraform** (`google_project_service` with
+  `disable_on_destroy = false`) so a fresh project bootstraps cleanly
+  without expanding `bootstrap.sh`'s API list.
+- **No tables, views, or routines yet.** Schemas land with the dbt
+  models in Phase 2; defining them in Terraform now would duplicate dbt's
+  ownership of those objects.
+
+See [README.md](./README.md) for operator commands.
+
 ---
 
 ## Methodology — probabilistic Expected Annual Damage
@@ -271,8 +335,8 @@ All free and re-distributable.
 .
 ├── CLAUDE.md                   # this file
 ├── README.md                   # public-facing
-├── pyproject.toml              # Poetry / uv project
-├── .python-version             # 3.11
+├── pyproject.toml              # uv project
+├── .python-version             # 3.14
 ├── .pre-commit-config.yaml     # ruff, mypy, end-of-file fixer
 ├── config/
 │   ├── release.yaml            # Overture release pin, regions
@@ -300,6 +364,12 @@ All free and re-distributable.
 │   └── integration/
 └── infra/
     ├── terraform/              # GCP project, GCS, BQ, Composer
+    │   ├── bootstrap/          # one-time tfstate bucket creation
+    │   ├── versions.tf         # provider + backend pin
+    │   ├── main.tf             # provider config
+    │   ├── variables.tf
+    │   ├── buckets.tf          # raw / silver / gold GCS buckets
+    │   └── outputs.tf
     └── dbt_profiles.yml
 ```
 
@@ -307,7 +377,7 @@ All free and re-distributable.
 
 ## Coding conventions
 
-- **Python 3.14**, managed with `uv` or Poetry. Pin all versions.
+- **Python 3.14**, managed with `uv`. Pin all versions.
 - **Linting**: `ruff` with rules in `pyproject.toml`. `mypy --strict` on
   `src/`, ignored in `notebooks/` and `tests/`.
 - **Imports**: absolute from `floodpipe.*`. No `from x import *`.
@@ -329,6 +399,11 @@ All free and re-distributable.
   Sedona on tiny inputs.
 - **Commits**: Conventional Commits (`feat:`, `fix:`, `chore:`, etc.).
   PRs squash-merged to `main`.
+- **Notebook trust**: Jupyter signatures are content-based, so re-saving a
+  notebook invalidates them and JupyterLab refuses to render maps/HTML
+  output until you click "Trust Notebook". Run `make trust` after editing
+  notebooks; it signs every `.ipynb` under `notebooks/` with the venv's
+  `jupyter trust`.
 
 ---
 
@@ -387,7 +462,7 @@ All free and re-distributable.
 - **NFHL coverage gaps**. ~10% of the US population is not covered by
   effective NFHL. For those regions, fall back to ML-predicted susceptibility
   alone and flag the row with `hazard_source = 'ml_only'`.
-- **Cost discipline**. Set GCP budget alerts at $20 / $50 / $100. Cap
+- **Cost discipline**. Set GCP budget alerts at $5 / $10 / $20. Cap
   Dataproc Serverless executor counts. Use BigQuery on-demand billing,
   not flat-rate, until the workload is stable. Never run a CONUS-wide
   experiment without a cost estimate first.
