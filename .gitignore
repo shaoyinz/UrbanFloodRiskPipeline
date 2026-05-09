@@ -1,0 +1,27 @@
+# Local data (raw downloads, intermediate parquets, scoring outputs)
+data/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.json.key
+service-account*.json
