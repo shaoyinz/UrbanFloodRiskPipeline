@@ -1,0 +1,5 @@
+project_id    = "your-gcp-project-id"
+region        = "us-central1"
+data_location = "US"
+# bucket_prefix     = "custom-prefix"   # optional; defaults to "${project_id}-floodpipe"
+# bq_dataset_prefix = "floodpipe"        # optional; underscores only (BQ rule)

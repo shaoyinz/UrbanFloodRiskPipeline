@@ -1,0 +1,21 @@
+# Local state and plans (we use the GCS backend in CI/shared use,
+# but keep these gitignored in case someone runs without -backend-config)
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+
+# Provider plugins and module cache
+.terraform/
+
+# Backend config written by bootstrap.sh; contains the bucket name.
+# Re-derivable from PROJECT_ID, no secrets, but per-environment.
+backend.hcl
+
+# Real variable values (may contain project IDs); the .example is committed.
+terraform.tfvars
+*.auto.tfvars
+*.auto.tfvars.json
+
+# Saved plans
+*.tfplan
