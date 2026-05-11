@@ -22,3 +22,13 @@ output "bq_gold_dataset" {
   description = "Fully-qualified ID of the gold (dbt outputs) dataset."
   value       = "${var.project_id}.${google_bigquery_dataset.gold.dataset_id}"
 }
+
+output "dataproc_runner_sa" {
+  description = "Email of the service account that runs Dataproc Serverless batches."
+  value       = google_service_account.dataproc_runner.email
+}
+
+output "dbt_runner_sa" {
+  description = "Email of the service account that runs dbt against BigQuery."
+  value       = google_service_account.dbt_runner.email
+}
