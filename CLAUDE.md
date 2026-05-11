@@ -110,10 +110,11 @@ Rationale:
 - **State bucket bootstrapped, not Terraformed**: `terraform init`
   needs the bucket before it runs; also keeps `terraform destroy` from
   ever deleting the file describing what still exists.
-- **Out of scope at this layer**: service accounts (added when Composer/
-  Dataproc land), billing budget alerts (Cloud Console one-time per
-  CLAUDE.md cost discipline note), Python GCS helpers (added when
-  ingest jobs need them).
+- **Out of scope at this layer**: billing budget alerts (Cloud Console
+  one-time per CLAUDE.md cost discipline note). Service accounts for
+  Dataproc/dbt now live in `infra/terraform/compute.tf`; ingest jobs
+  shell out to `gcloud storage` rather than the google-cloud-storage
+  Python SDK to keep deps minimal.
 
 ### BigQuery datasets
 
@@ -298,10 +299,22 @@ All free and re-distributable.
 
 ### FEMA flood hazards — NFHL
 
-- Source: FEMA Map Service Center, state-level "NFHL_State_GDB" downloads
-- Layers used: `S_Fld_Haz_Ar` (zones), `S_BFE` (base flood elevations)
-- Format on download: file geodatabase. Convert to GeoParquet on ingest.
-- Coverage: ~90% of US population. Document gaps in the README.
+- Source: University of Florida GeoPlan Center's FGDL mirror at
+  `https://fgdl.org/zips/geospatial_data/current/` — a Florida-wide
+  quarterly FGDB ZIP of the upstream FEMA NFHL (`dfirm_fldhaz_<mon><yy>.zip`
+  for zones, `dfirm_bfe_<mon><yy>.zip` for BFEs). We tried FEMA's own
+  ArcGIS REST endpoint (`hazards.fema.gov/arcgis/rest/services/public/NFHL`)
+  — it 500s repeatedly on state-scale bulk export. FGDL serves the same
+  data as one download.
+- Phase 2 → Phase 4: FGDL is Florida-only. CONUS will need per-state
+  mirrors (TX → TNRIS, NC → NCOneMap, etc.) and/or a vendor that
+  redistributes the full NFHL; out of Phase 2 scope.
+- Format on download: file geodatabase inside a ZIP, EPSG:3086 (Florida
+  Albers). Reproject to EPSG:4326 on ingest. No geometry simplification
+  here — that belongs in the Spark silver step where the BigQuery 10 MB
+  GEOGRAPHY limit fix is applied.
+- Coverage: ~90% of US population covered by NFHL upstream. Document
+  gaps in the README.
 
 ### Digital elevation — USGS 3DEP
 

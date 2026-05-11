@@ -24,9 +24,11 @@ sources, and the phased build plan.
   - ✓ Scoring library `src/floodpipe/scoring/` with 4-point Gumbel-tail
     EAD; verified to reproduce notebook-5 Harris totals exactly (24
     unit tests).
-  - next: Florida ingest scripts (Overture + NFHL) → raw bucket;
-    Sedona/Dataproc Serverless job → silver GeoParquet; dbt models →
-    gold `fct_building_vulnerability`.
+  - ✓ Florida raw zone populated: Overture buildings, NFHL zones + BFE
+    (via FGDL mirror), 27 3DEP DEM tiles (~7.9 GB) under
+    `gs://<prefix>-raw/`.
+  - next: Sedona/Dataproc Serverless job → silver GeoParquet; dbt models
+    → gold `fct_building_vulnerability`.
 
 ---
 
@@ -210,7 +212,8 @@ GCS) and support `--dry-run` to print the plan only.
 # preview
 PROJECT_ID=your-gcp-project scripts/ingest_florida.sh --dry-run
 
-# run everything (Overture ~1.5 GB, NFHL ~150 MB, 3DEP ~10–20 GB)
+# run everything (Overture ~1 GB, NFHL ~1.7 GB zones + ~6 MB BFE,
+# 3DEP ~8 GB across 27 land tiles for FL)
 PROJECT_ID=your-gcp-project scripts/ingest_florida.sh
 
 # or run one at a time
@@ -229,6 +232,8 @@ usgs/3dep/product=13/state=FL/USGS_13_<tile>.tif
 
 Auth: the CLIs shell out to `gcloud storage cp`, so any active `gcloud
 auth` (user creds or impersonated SA) works. No extra Python deps for
-GCS. Source S3 buckets (Overture, USGS 3DEP) are public; FEMA MSC is
-public HTTPS. The release pins live in `config/release.yaml` — bump
+GCS. Source S3 buckets (Overture, USGS 3DEP) are public; NFHL is
+mirrored from the University of Florida GeoPlan Center (FGDL) over
+public HTTPS — FEMA's own NFHL REST endpoint can't sustain state-scale
+bulk export. The release pins live in `config/release.yaml` — bump
 them to force a clean re-ingest.

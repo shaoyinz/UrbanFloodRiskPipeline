@@ -25,3 +25,11 @@ __pycache__/
 !.env.example
 *.json.key
 service-account*.json
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+!terraform.tfvars.example
