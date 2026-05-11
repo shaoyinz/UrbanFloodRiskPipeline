@@ -12,8 +12,21 @@ sources, and the phased build plan.
 
 ## Status
 
-**Phase 0 — infra bootstrap.** Storage layer (GCS buckets) + BigQuery
-datasets. No compute (Dataproc / Composer) yet.
+- **Phase 0 — infra bootstrap.** ✓ Storage layer (4 GCS buckets) +
+  BigQuery datasets in Terraform.
+- **Phase 1 — local DuckDB prototype.** ✓ Harris County, TX end-to-end
+  in `notebooks/exploration/01..05`. Final per-building EAD parquet at
+  `data/raw/harris_building_ead.parquet`. Total Harris EAD ≈ $598 M/yr.
+- **Phase 2 — single-region cloud pipeline.** in progress.
+  - ✓ Dataproc & dbt service accounts + IAM (`infra/terraform/compute.tf`).
+  - ✓ Pinned upstream releases in `config/release.yaml`; HAZUS archetypes
+    and DDF tables extracted to `config/archetypes.yaml`.
+  - ✓ Scoring library `src/floodpipe/scoring/` with 4-point Gumbel-tail
+    EAD; verified to reproduce notebook-5 Harris totals exactly (24
+    unit tests).
+  - next: Florida ingest scripts (Overture + NFHL) → raw bucket;
+    Sedona/Dataproc Serverless job → silver GeoParquet; dbt models →
+    gold `fct_building_vulnerability`.
 
 ---
 
@@ -149,7 +162,73 @@ infra/terraform/
 ├── variables.tf            # project_id, region, data_location, prefix
 ├── buckets.tf              # raw / silver / gold buckets
 ├── bigquery.tf             # silver_ext + gold datasets
-├── services.tf             # google_project_service for BigQuery API
-├── outputs.tf              # bucket gs:// URLs + BQ dataset IDs
+├── services.tf             # APIs: BigQuery
+├── compute.tf              # APIs: Dataproc/Compute/IAM; SAs + bucket/dataset IAM
+├── outputs.tf              # bucket URLs, dataset IDs, SA emails
 └── terraform.tfvars.example
+
+config/                     # release pins + HAZUS archetype tables
+├── release.yaml
+└── archetypes.yaml
+
+src/floodpipe/              # pure-python lib (no pyproject.toml; see CLAUDE.md)
+├── scoring/
+│   ├── archetypes.py       # Overture -> HAZUS occupancy
+│   ├── ddf.py              # depth-damage lookup, replacement value
+│   └── ead.py              # Gumbel depth extrapolation + EAD trapezoid
+└── ingest/
+    ├── _common.py          # config loader, FL bbox, gcloud subprocess
+    ├── overture.py         # DuckDB+httpfs -> Overture FL slice in raw
+    ├── nfhl.py             # FEMA state GDB -> S_FLD_HAZ_AR + S_BFE
+    └── dem.py              # 3DEP 1/3" tiles for FL bbox
+
+scripts/ingest_florida.sh   # run all three ingest CLIs in order
+
+tests/                      # 39 tests; run `.venv/bin/python -m pytest tests/`
+├── conftest.py
+└── unit/{test_scoring.py, test_ingest.py}
 ```
+
+### Running the scoring lib locally
+
+```bash
+.venv/bin/python -m pytest tests/        # all tests
+```
+
+The `tests/conftest.py` adds `src/` to `sys.path`, so no install step is
+needed. Notebooks import the same way (`sys.path.insert(0, "src")`).
+
+---
+
+## Phase 2 — ingest Florida raw data
+
+Three CLIs land upstream data into `gs://${PROJECT_ID}-floodpipe-raw/`
+under release-tagged paths. All are idempotent (skip targets already in
+GCS) and support `--dry-run` to print the plan only.
+
+```bash
+# preview
+PROJECT_ID=your-gcp-project scripts/ingest_florida.sh --dry-run
+
+# run everything (Overture ~1.5 GB, NFHL ~150 MB, 3DEP ~10–20 GB)
+PROJECT_ID=your-gcp-project scripts/ingest_florida.sh
+
+# or run one at a time
+PYTHONPATH=src .venv/bin/python -m floodpipe.ingest.overture --project-id $PROJECT_ID
+PYTHONPATH=src .venv/bin/python -m floodpipe.ingest.nfhl     --project-id $PROJECT_ID
+PYTHONPATH=src .venv/bin/python -m floodpipe.ingest.dem      --project-id $PROJECT_ID --max-tiles 4
+```
+
+Output layout under `gs://<prefix>-raw/`:
+
+```
+overture/release=<r>/state=FL/buildings.parquet
+fema/nfhl/snapshot=<s>/state=FL/{zones,bfe}.parquet
+usgs/3dep/product=13/state=FL/USGS_13_<tile>.tif
+```
+
+Auth: the CLIs shell out to `gcloud storage cp`, so any active `gcloud
+auth` (user creds or impersonated SA) works. No extra Python deps for
+GCS. Source S3 buckets (Overture, USGS 3DEP) are public; FEMA MSC is
+public HTTPS. The release pins live in `config/release.yaml` — bump
+them to force a clean re-ingest.

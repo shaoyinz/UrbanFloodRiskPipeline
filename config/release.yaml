@@ -1,0 +1,33 @@
+# Pinned upstream data releases. The pipeline is idempotent per (release,
+# region) tuple — bumping any field here forces a re-ingest of that source
+# from scratch into the raw zone under a release-tagged path.
+
+overture:
+  # Public releases are retained ~60 days; we copy the slice we need on
+  # ingest and depend on our GCS copy thereafter (CLAUDE.md §Data sources).
+  # Matches notebooks/exploration/01 — bump when upstream rotates.
+  release: "2026-04-15.0"
+  s3_uri: "s3://overturemaps-us-west-2/release/2026-04-15.0/theme=buildings/type=building/"
+  theme: buildings
+  type: building
+
+fema_nfhl:
+  # State-level NFHL_State_GDB downloads from FEMA MSC.
+  # No version string upstream; we pin by the download date.
+  snapshot: "2026-04-15"
+  msc_base: "https://hazards.fema.gov/nfhlv2/output/State/"
+
+usgs_3dep:
+  # 1/3 arc-second (~10 m) Cloud-Optimized GeoTIFF tiles.
+  product: "13"
+  s3_uri: "s3://prd-tnm/StagedProducts/Elevation/13/TIFF/current/"
+
+cdc_svi:
+  # Tract-level Social Vulnerability Index.
+  year: 2022
+  url: "https://svi.cdc.gov/Documents/Data/2022/csv/states/SVI_2022_US.csv"
+
+# Phase 2 targets a single state. Phase 4 expands to CONUS.
+target:
+  state_fips: "12"      # Florida
+  state_abbr: "FL"

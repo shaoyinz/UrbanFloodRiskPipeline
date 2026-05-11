@@ -1,0 +1,66 @@
+# HAZUS occupancy archetypes, depth-damage functions, and replacement
+# values. Phase 1 had these inline in notebooks/exploration/05; Phase 2
+# externalizes them so Spark, dbt, and tests load from one place.
+#
+# Damage fractions are unitless [0,1]; depth keys are in FEET above the
+# first floor (HAZUS convention). $/sqft is HAZUS 6.0 Texas defaults in
+# 2023 dollars — coarse-grained on purpose (CLAUDE.md §Pitfalls: HAZUS
+# DDF vintage). Phase 4 swaps these for the full HAZUS curve library.
+
+# Overture class/subtype -> HAZUS occupancy code. First matching rule
+# wins. `subtype_contains` is a substring match on the lower-cased
+# Overture subtype; null means "any". Unmatched footprints fall back to
+# RES1 (notebook 5 precedent — dominant Harris/Florida class).
+mapping:
+  - class: residential
+    subtype_contains: multi
+    archetype: RES3
+  - class: residential
+    subtype_contains: null
+    archetype: RES1
+  - class: commercial
+    subtype_contains: retail
+    archetype: COM1
+  - class: commercial
+    subtype_contains: office
+    archetype: COM4
+  - class: commercial
+    subtype_contains: null
+    archetype: COM1
+  - class: industrial
+    subtype_contains: null
+    archetype: IND1
+  - class: education
+    subtype_contains: null
+    archetype: EDU1
+  - class: medical
+    subtype_contains: null
+    archetype: COM6
+
+fallback_archetype: RES1
+
+replacement_usd_per_sqft:
+  RES1: 110.0
+  RES3: 130.0
+  COM1: 95.0
+  COM4: 145.0
+  COM6: 280.0
+  IND1: 90.0
+  EDU1: 150.0
+
+# Depth-damage tables. Each row is [depth_ft_above_floor, damage_fraction].
+# Tables are piecewise-linear; lookups clamp at the endpoints. Negative
+# depths (building above flood elevation) yield zero damage.
+depth_damage_ft:
+  RES1: [[-2, 0.00], [0, 0.09], [1, 0.14], [3, 0.27], [6, 0.40], [10, 0.50], [16, 0.60]]
+  RES3: [[-2, 0.00], [0, 0.05], [1, 0.10], [3, 0.21], [6, 0.34], [10, 0.46], [16, 0.55]]
+  COM1: [[-2, 0.00], [0, 0.02], [1, 0.09], [3, 0.18], [6, 0.31], [10, 0.43], [16, 0.50]]
+  COM4: [[-2, 0.00], [0, 0.01], [1, 0.07], [3, 0.16], [6, 0.27], [10, 0.40], [16, 0.48]]
+  COM6: [[-2, 0.00], [0, 0.05], [1, 0.13], [3, 0.25], [6, 0.40], [10, 0.55], [16, 0.65]]
+  IND1: [[-2, 0.00], [0, 0.02], [1, 0.06], [3, 0.13], [6, 0.22], [10, 0.32], [16, 0.40]]
+  EDU1: [[-2, 0.00], [0, 0.04], [1, 0.10], [3, 0.20], [6, 0.32], [10, 0.44], [16, 0.52]]
+
+# Return periods (years) at which we score damage. NFHL ships 100 and
+# 500; 10 and 50 are GEV-interpolated from those two (CLAUDE.md §Method
+# Component 2). Order matters — EAD integration walks this list low->high.
+return_periods: [10, 50, 100, 500]

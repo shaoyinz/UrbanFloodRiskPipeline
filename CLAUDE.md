@@ -182,6 +182,17 @@ depth_at_T = BFE_T - ground_elevation_at_centroid
 
 Negative values are clipped to zero (building is above flood elevation).
 
+**Phase-2 simplification.** With only two NFHL data points (T=100, T=500),
+the full 3-parameter GEV is underdetermined. We use the Gumbel special
+case (shape ξ=0), which has exactly two free parameters (location μ,
+scale σ) and is uniquely solved from the (100, 500) pair. The reduced
+variate is `y(T) = −ln(−ln(1 − 1/T))`; depth is linear in y. T<100
+extrapolations are clamped at zero. See
+`src/floodpipe/scoring/ead.py:interpolate_depth_gumbel`. Phase 4 swaps
+this for a proper regional GEV fit using historic flood-frequency
+analyses (e.g. NOAA Atlas 14 regional curves), where ξ varies by climate
+zone.
+
 ### Component 3 — Depth-damage functions with archetypes
 
 Damage is a **non-linear function of depth and building archetype**, not a
@@ -377,7 +388,11 @@ All free and re-distributable.
 
 ## Coding conventions
 
-- **Python 3.14**, managed with `uv`. Pin all versions.
+- **Python 3.14**, managed with `uv`. Pin all versions. No
+  `pyproject.toml` while the project is exploratory — packages on the
+  PYTHONPATH via `tests/conftest.py` and `sys.path` in notebooks.
+  Re-evaluate when Phase 2 Spark code needs to be packaged for Dataproc
+  Serverless `--py-files`.
 - **Linting**: `ruff` with rules in `pyproject.toml`. `mypy --strict` on
   `src/`, ignored in `notebooks/` and `tests/`.
 - **Imports**: absolute from `floodpipe.*`. No `from x import *`.
