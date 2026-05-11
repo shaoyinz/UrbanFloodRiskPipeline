@@ -12,10 +12,15 @@ overture:
   type: building
 
 fema_nfhl:
-  # State-level NFHL_State_GDB downloads from FEMA MSC.
-  # No version string upstream; we pin by the download date.
-  snapshot: "2026-04-15"
-  msc_base: "https://hazards.fema.gov/nfhlv2/output/State/"
+  # FEMA retired the bulk MSC state-GDB downloads and their public NFHL
+  # REST endpoint can't sustain state-scale bulk export. We pull from
+  # the University of Florida GeoPlan Center's FGDL mirror instead
+  # (https://fgdl.org/zips/geospatial_data/current/), which republishes
+  # the upstream FEMA NFHL as a Florida-wide FGDB zip on a quarterly
+  # cadence. The snapshot string is the FGDL filename suffix (e.g.
+  # ``apr26`` → ``dfirm_fldhaz_apr26.zip``) and the idempotency key.
+  # Bump it when FGDL publishes the next snapshot.
+  snapshot: "apr26"
 
 usgs_3dep:
   # 1/3 arc-second (~10 m) Cloud-Optimized GeoTIFF tiles.

@@ -43,28 +43,29 @@ class TestOverture:
 
 
 class TestNFHL:
-    def test_zip_url_state_filename(self):
-        url = nfhl.nfhl_zip_url("https://hazards.fema.gov/nfhlv2/output/State/", "FL")
-        assert url == "https://hazards.fema.gov/nfhlv2/output/State/FL_NFHL.zip"
-
-    def test_zip_url_trailing_slash_tolerant(self):
-        # _common normalizes the base; the function itself shouldn't blow up
-        # when given a trailing slash.
-        url = nfhl.nfhl_zip_url("https://hazards.fema.gov/nfhlv2/output/State", "FL")
-        assert url.endswith("/FL_NFHL.zip")
-        assert "State//" not in url
+    def test_fgdl_zip_url(self):
+        # FGDL filename convention: dfirm_<kind>_<snapshot>.zip under the
+        # current-data directory. Bumping the snapshot rotates the URL.
+        zones = nfhl.fgdl_zip_url("apr26", "zones")
+        bfe = nfhl.fgdl_zip_url("apr26", "bfe")
+        assert zones.endswith("/current/dfirm_fldhaz_apr26.zip")
+        assert bfe.endswith("/current/dfirm_bfe_apr26.zip")
+        assert zones.startswith("https://fgdl.org/")
 
     def test_target_uri_per_kind(self):
-        zones = nfhl.gcs_target_uri("gs://b-raw", "2026-04-15", "FL", "zones")
-        bfe = nfhl.gcs_target_uri("gs://b-raw", "2026-04-15", "FL", "bfe")
-        assert zones.endswith("/snapshot=2026-04-15/state=FL/zones.parquet")
-        assert bfe.endswith("/snapshot=2026-04-15/state=FL/bfe.parquet")
+        zones = nfhl.gcs_target_uri("gs://b-raw", "apr26", "FL", "zones")
+        bfe = nfhl.gcs_target_uri("gs://b-raw", "apr26", "FL", "bfe")
+        assert zones.endswith("/snapshot=apr26/state=FL/zones.parquet")
+        assert bfe.endswith("/snapshot=apr26/state=FL/bfe.parquet")
 
     def test_layer_mapping(self):
         # Phase 1 notebook uses S_FLD_HAZ_AR (zones) and S_BFE (lines);
         # changing this without bumping the silver schema would silently
         # break downstream — pin it.
         assert nfhl.NFHL_LAYERS == {"zones": "S_FLD_HAZ_AR", "bfe": "S_BFE"}
+        # FGDL layer-name candidates must cover both kinds.
+        assert set(nfhl.FGDL_LAYER_CANDIDATES) == set(nfhl.NFHL_LAYERS)
+        assert all(nfhl.FGDL_LAYER_CANDIDATES[k] for k in nfhl.NFHL_LAYERS)
 
 
 class TestDEM:

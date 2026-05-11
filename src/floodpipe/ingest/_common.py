@@ -31,7 +31,6 @@ class ReleaseConfig:
     overture_release: str
     overture_s3_uri: str
     nfhl_snapshot: str
-    nfhl_msc_base: str
     dep_product: str
     dep_s3_uri: str
     target_state_abbr: str
@@ -44,7 +43,6 @@ def load_release_config(path: Path = DEFAULT_RELEASE_YAML) -> ReleaseConfig:
         overture_release=str(raw["overture"]["release"]),
         overture_s3_uri=str(raw["overture"]["s3_uri"]),
         nfhl_snapshot=str(raw["fema_nfhl"]["snapshot"]),
-        nfhl_msc_base=str(raw["fema_nfhl"]["msc_base"]).rstrip("/") + "/",
         dep_product=str(raw["usgs_3dep"]["product"]),
         dep_s3_uri=str(raw["usgs_3dep"]["s3_uri"]),
         target_state_abbr=str(raw["target"]["state_abbr"]),
