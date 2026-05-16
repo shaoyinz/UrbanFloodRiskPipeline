@@ -55,6 +55,12 @@ def raw_bucket(project_id: str, bucket_prefix: str | None = None) -> str:
     return f"gs://{prefix}-raw"
 
 
+def silver_bucket(project_id: str, bucket_prefix: str | None = None) -> str:
+    """Medallion silver-zone bucket — Spark-enriched GeoParquet lands here."""
+    prefix = bucket_prefix or f"{project_id}-floodpipe"
+    return f"gs://{prefix}-silver"
+
+
 def gcloud() -> str:
     path = shutil.which("gcloud")
     if not path:

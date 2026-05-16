@@ -7,6 +7,8 @@ data/
 # Python
 .venv/
 __pycache__/
+# Dataproc --py-files build artifact (see README Phase 2)
+dist/
 *.pyc
 *.pyo
 *.egg-info/

@@ -27,8 +27,11 @@ sources, and the phased build plan.
   - ✓ Florida raw zone populated: Overture buildings, NFHL zones + BFE
     (via FGDL mirror), 27 3DEP DEM tiles (~7.9 GB) under
     `gs://<prefix>-raw/`.
-  - next: Sedona/Dataproc Serverless job → silver GeoParquet; dbt models
-    → gold `fct_building_vulnerability`.
+  - ✓ Sedona silver job `src/floodpipe/spark/` — building ⨝ NFHL zones
+    ⨝ 3DEP DEM, H3 keys, slope/TPI, 100/500-yr depths → silver
+    GeoParquet. Pure depth/terrain logic unit-tested (63 tests);
+    Sedona orchestration pending Dataproc-emulator integration run.
+  - next: dbt models → gold `fct_building_vulnerability`.
 
 ---
 
@@ -178,17 +181,22 @@ src/floodpipe/              # pure-python lib (no pyproject.toml; see CLAUDE.md)
 │   ├── archetypes.py       # Overture -> HAZUS occupancy
 │   ├── ddf.py              # depth-damage lookup, replacement value
 │   └── ead.py              # Gumbel depth extrapolation + EAD trapezoid
-└── ingest/
-    ├── _common.py          # config loader, FL bbox, gcloud subprocess
-    ├── overture.py         # DuckDB+httpfs -> Overture FL slice in raw
-    ├── nfhl.py             # FEMA state GDB -> S_FLD_HAZ_AR + S_BFE
-    └── dem.py              # 3DEP 1/3" tiles for FL bbox
+├── ingest/
+│   ├── _common.py          # config loader, FL bbox, gcloud subprocess
+│   ├── overture.py         # DuckDB+httpfs -> Overture FL slice in raw
+│   ├── nfhl.py             # FEMA state GDB -> S_FLD_HAZ_AR + S_BFE
+│   └── dem.py              # 3DEP 1/3" tiles for FL bbox
+└── spark/                  # Sedona silver job (runs on Dataproc Serverless)
+    ├── session.py          # Sedona-enabled SparkSession factory
+    ├── paths.py            # raw-zone input + silver-zone output URIs
+    ├── depths.py           # pure depth/terrain logic (pandas-UDF bodies)
+    └── build_silver.py     # building ⨝ zones ⨝ DEM -> silver GeoParquet
 
 scripts/ingest_florida.sh   # run all three ingest CLIs in order
 
-tests/                      # 39 tests; run `.venv/bin/python -m pytest tests/`
+tests/                      # 63 tests; run `.venv/bin/python -m pytest tests/`
 ├── conftest.py
-└── unit/{test_scoring.py, test_ingest.py}
+└── unit/{test_scoring.py, test_ingest.py, test_spark.py}
 ```
 
 ### Running the scoring lib locally
@@ -237,3 +245,49 @@ mirrored from the University of Florida GeoPlan Center (FGDL) over
 public HTTPS — FEMA's own NFHL REST endpoint can't sustain state-scale
 bulk export. The release pins live in `config/release.yaml` — bump
 them to force a clean re-ingest.
+
+---
+
+## Phase 2 — build the silver zone (Sedona on Dataproc Serverless)
+
+`src/floodpipe/spark/build_silver.py` reads the Florida raw zone and
+writes one enriched GeoParquet row per building to
+`gs://<prefix>-silver/buildings/release=<r>/state=FL/`:
+
+- centroid lon/lat, footprint area (m², CONUS Albers EPSG:5070)
+- H3 cell IDs at resolutions 6–9
+- NFHL flood zone + subtype, SFHA flag, `hazard_source`
+- base flood elevation (`STATIC_BFE`, else nearest `S_BFE` line)
+- ground elevation, slope, TPI sampled from the 3DEP DEM
+- 100-yr and 500-yr inundation depth
+
+Scoring (archetype, depth-damage, EAD, equity) stays out of this job —
+that is the dbt gold step, which reads the silver GeoParquet as a
+BigQuery external table.
+
+```bash
+# preview the resolved input/output URIs without starting Spark
+PYTHONPATH=src .venv/bin/python -m floodpipe.spark.build_silver \
+  --project-id $PROJECT_ID --dry-run
+
+# package the floodpipe package for --py-files, then submit the batch
+( cd src && zip -qr ../dist/floodpipe.zip floodpipe )
+gcloud dataproc batches submit pyspark \
+  src/floodpipe/spark/build_silver.py \
+  --project=$PROJECT_ID --region=us-central1 --version=2.2 \
+  --py-files=dist/floodpipe.zip \
+  --service-account=$DATAPROC_SA \
+  --properties='^~^spark.jars.packages=org.apache.sedona:sedona-spark-shaded-3.5_2.12:1.6.1,org.datasyslab:geotools-wrapper:1.6.1-28.2' \
+  -- --project-id=$PROJECT_ID
+```
+
+The job repartitions buildings by H3 res-7 before any spatial join to
+defeat dense-urban skew, and loads the 3DEP COGs out-of-DB
+(`RS_FromPath`) so raster handles broadcast cheaply and `RS_Value`
+reads only the pixels it needs. `--limit N` caps the building count
+for a smoke test; `--partitions` tunes the shuffle width.
+
+The row-wise depth and terrain logic lives in `floodpipe.spark.depths`
+(pure NumPy, wrapped by pandas UDFs) and is unit-tested without Spark.
+The Sedona orchestration itself is verified on the Dataproc emulator —
+that integration run is the remaining Phase-2 silver task.
